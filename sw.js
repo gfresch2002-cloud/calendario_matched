@@ -1,11 +1,11 @@
-const CACHE_NAME = 'mb-cal-v1';
+const CACHE_NAME = 'mb-cal-v2';
 const ASSETS = [
   './',
   './index.html',
   './manifest.json'
 ];
 
-// Install: cache all assets
+// Install: cache assets
 self.addEventListener('install', e => {
   e.waitUntil(
     caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS))
@@ -13,7 +13,7 @@ self.addEventListener('install', e => {
   self.skipWaiting();
 });
 
-// Activate: clean old caches
+// Activate: elimina vecchie cache
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys =>
@@ -23,9 +23,16 @@ self.addEventListener('activate', e => {
   self.clients.claim();
 });
 
-// Fetch: serve from cache, fallback to network
+// Fetch: network-first — prova sempre la rete, fallback alla cache
 self.addEventListener('fetch', e => {
   e.respondWith(
-    caches.match(e.request).then(cached => cached || fetch(e.request))
+    fetch(e.request)
+      .then(response => {
+        // aggiorna la cache con la risposta fresca
+        const clone = response.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
+        return response;
+      })
+      .catch(() => caches.match(e.request))
   );
 });
