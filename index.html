@@ -15,7 +15,52 @@
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
   <meta name="apple-mobile-web-app-title" content="MB Cal"/>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+  <!--
+    ╔══════════════════════════════════════════════════════════════╗
+    ║  AUTO-REFRESH / CACHE BUSTING                                ║
+    ║                                                              ║
+    ║  Come funziona:                                              ║
+    ║  Ogni volta che aggiorni i file su GitHub, incrementa        ║
+    ║  APP_VERSION qui sotto (es. da "1.0" a "1.1").               ║
+    ║                                                              ║
+    ║  Lo script confronta questa versione con quella salvata      ║
+    ║  nel localStorage. Se sono diverse, svuota la cache del      ║
+    ║  Service Worker e forza un reload automatico.                ║
+    ║                                                              ║
+    ║  L'utente vedrà sempre la versione aggiornata senza          ║
+    ║  dover fare refresh manuale.                                 ║
+    ╚══════════════════════════════════════════════════════════════╝
+  -->
+  <script>
+    (function() {
+      var APP_VERSION = '1.0'; // ← AGGIORNA QUESTO AD OGNI DEPLOY
+
+      var storedVersion = localStorage.getItem('mb-cal-app-version');
+      if (storedVersion !== APP_VERSION) {
+        // versione cambiata — svuota cache SW e ricarica
+        localStorage.setItem('mb-cal-app-version', APP_VERSION);
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function(regs) {
+            var promises = regs.map(function(reg) { return reg.unregister(); });
+            Promise.all(promises).then(function() {
+              // svuota anche le cache CacheStorage
+              caches.keys().then(function(keys) {
+                return Promise.all(keys.map(function(k) { return caches.delete(k); }));
+              }).then(function() {
+                // reload solo se la versione era già stata salvata
+                // (prima installazione non fa reload)
+                if (storedVersion !== null) {
+                  window.location.reload(true);
+                }
+              });
+            });
+          });
+        }
+      }
+    })();
+  </script>
+
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     :root{
