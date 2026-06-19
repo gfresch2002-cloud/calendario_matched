@@ -670,7 +670,7 @@ function renderBookmakerSettings(){
     });
     const span=document.createElement('span');span.textContent=name;
     const del=document.createElement('button');del.className='sa-del';del.textContent='×';
-    del.addEventListener('click',()=>{bookmakerNames.splice(i,1);renderBookmakerSettings();});
+    del.addEventListener('click',()=>{bookmakerNames.splice(i,1);renderBookmakerSettings();scheduleSave();});
     item.appendChild(dot);item.appendChild(span);item.appendChild(del);
     list.appendChild(item);
   });
@@ -686,7 +686,7 @@ function renderSettings(){
     const dot=document.createElement('span');dot.className='sa-dot';
     const span=document.createElement('span');span.textContent=name;
     const del=document.createElement('button');del.className='sa-del';del.textContent='×';
-    del.addEventListener('click',()=>{accountNames.splice(i,1);renderSettings();});
+    del.addEventListener('click',()=>{accountNames.splice(i,1);renderSettings();scheduleSave();});
     item.appendChild(dot);item.appendChild(span);item.appendChild(del);
     list.appendChild(item);
   });
@@ -765,7 +765,7 @@ document.getElementById('settings-close').addEventListener('click',()=>document.
 document.getElementById('settings-bk-add').addEventListener('click',()=>{
   const inp=document.getElementById('settings-bk-input');
   const v=inp.value.trim();if(!v)return;
-  if(!bookmakerNames.includes(v)){bookmakerNames.push(v);renderBookmakerSettings();}
+  if(!bookmakerNames.includes(v)){bookmakerNames.push(v);renderBookmakerSettings();scheduleSave();}
   inp.value='';
 });
 document.getElementById('settings-bk-input').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('settings-bk-add').click();});
@@ -773,7 +773,7 @@ document.getElementById('settings-bk-input').addEventListener('keydown',e=>{if(e
 document.getElementById('settings-acc-add').addEventListener('click',()=>{
   const inp=document.getElementById('settings-acc-input');
   const v=inp.value.trim();if(!v)return;
-  if(!accountNames.includes(v)){accountNames.push(v);renderSettings();}
+  if(!accountNames.includes(v)){accountNames.push(v);renderSettings();scheduleSave();}
   inp.value='';
 });
 document.getElementById('settings-acc-input').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('settings-acc-add').click();});
@@ -900,7 +900,7 @@ function renderS1(){
     const lbl=document.createElement('div');lbl.className='s1-row-label';lbl.dataset.row=row;
     const num=document.createElement('span');num.className='row-num';num.textContent=row+1;
     const del=document.createElement('button');del.className='row-del';del.title='Rimuovi riga';del.textContent='×';
-    del.addEventListener('click',()=>{banners=banners.filter(b=>b.row!==row);s1Rows--;banners.forEach(b=>{if(b.row>row)b.row--;});renderS1();});
+    del.addEventListener('click',()=>{banners=banners.filter(b=>b.row!==row);s1Rows--;banners.forEach(b=>{if(b.row>row)b.row--;});renderS1();scheduleSave();});
     lbl.appendChild(del);lbl.appendChild(num);grid.appendChild(lbl);
     for(let col=0;col<7;col++){
       const cell=document.createElement('div');cell.className='s1-cell';cell.dataset.row=row;cell.dataset.col=col;cell.dataset.iso=toISO(days[col]);
@@ -1061,7 +1061,7 @@ function renderBanners(days){
     const cb=document.createElement('input');cb.type='checkbox';cb.className='b-check';cb.checked=banner.done;
     cb.style.position='relative';cb.style.zIndex='2';
     cb.addEventListener('mousedown',e=>e.stopPropagation());
-    cb.addEventListener('change',()=>{banner.done=cb.checked;renderBanners(days);});
+    cb.addEventListener('change',()=>{banner.done=cb.checked;renderBanners(days);scheduleSave();});
 
     // find today's col within covered cols to anchor title
     const todayISO=toISO(today);
@@ -1110,7 +1110,7 @@ function renderBanners(days){
 
     const delBtn=document.createElement('button');delBtn.className='b-del';delBtn.textContent='×';delBtn.style.position='relative';delBtn.style.zIndex='2';
     delBtn.addEventListener('mousedown',e=>e.stopPropagation());
-    delBtn.addEventListener('click',()=>{banners=banners.filter(b=>b.id!==banner.id);renderBanners(days);});
+    delBtn.addEventListener('click',()=>{banners=banners.filter(b=>b.id!==banner.id);renderBanners(days);scheduleSave();});
 
     bar.appendChild(cb);bar.appendChild(titleSpan);bar.appendChild(expandBtn);bar.appendChild(delBtn);
     overlay.appendChild(bar);
@@ -1150,11 +1150,12 @@ document.addEventListener('mouseup',()=>{
     banners.push({id:newId(),row,startDate,endDate,title,type,time,done:false,accounts:[]});
     // S1 non marca autonomia
     renderBanners(getWeekDays());
+    scheduleSave();
   });
 });
 
 document.getElementById('s1-show-hidden').addEventListener('click',()=>{showHidden=!showHidden;document.getElementById('s1-show-hidden').classList.toggle('active',showHidden);document.getElementById('s1-show-hidden').textContent=showHidden?'Nascondi completati':'Mostra completati';renderBanners(getWeekDays());});
-document.getElementById('s1-add-row-btn').addEventListener('click',()=>{s1Rows++;renderS1();});
+document.getElementById('s1-add-row-btn').addEventListener('click',()=>{s1Rows++;renderS1();scheduleSave();});
 
 
 // ══════════════════════════════════════════════════════
@@ -1304,7 +1305,7 @@ function renderS2(){
     dot.addEventListener('click',e=>{
       e.stopPropagation();
       openColorPalette(dot,bookColorByName(book),color=>{
-        customBookColors[book]=color;renderS2();renderBookmakerSettings();
+        customBookColors[book]=color;renderS2();renderBookmakerSettings();scheduleSave();
       },book);
     });
     const nameInp=document.createElement('input');
@@ -1340,7 +1341,7 @@ function renderS2(){
     restoreBtn.textContent='▼';
     restoreBtn.style.transform=allVisible?'rotate(0deg)':'rotate(-90deg)';
     restoreBtn.style.color=allVisible?'var(--text-muted)':'var(--accent2)';
-    restoreBtn.addEventListener('click',()=>{const v=getBookVis(bi);v.Live=true;v.Sport=true;v.Offline=true;renderS2();});
+    restoreBtn.addEventListener('click',()=>{const v=getBookVis(bi);v.Live=true;v.Sport=true;v.Offline=true;renderS2();scheduleSave();});
     const dragHandle=document.createElement('button');
     dragHandle.className='s2-drag-handle';
     dragHandle.textContent='⠿';
@@ -1406,7 +1407,7 @@ function renderS2(){
       eyeBtn.textContent=bvis[type]?'👁':'🕶️';
       eyeBtn.classList.toggle('hidden',!bvis[type]);
       eyeBtn.title=(bvis[type]?'Nascondi ':'Mostra ')+type;
-      eyeBtn.addEventListener('click',e=>{e.stopPropagation();const v=getBookVis(bi);v[type]=!v[type];renderS2();});
+      eyeBtn.addEventListener('click',e=>{e.stopPropagation();const v=getBookVis(bi);v[type]=!v[type];renderS2();scheduleSave();});
       const lblSpan=document.createElement('span');lblSpan.textContent=type;
       tdLbl.appendChild(eyeBtn);tdLbl.appendChild(lblSpan);
       trSub.appendChild(tdLbl);
@@ -1535,7 +1536,7 @@ function renderS3(){
       colorDot.addEventListener('click',e=>{
         e.stopPropagation();
         openColorPalette(colorDot,bookColorByName(bookName),color=>{
-          customBookColors[bookName]=color;renderS3();renderBookmakerSettings();
+          customBookColors[bookName]=color;renderS3();renderBookmakerSettings();scheduleSave();
         },bookName);
       });
       // drag handle
@@ -1706,13 +1707,14 @@ function renderAll(){
 }
 
 document.getElementById('s2-eye-all').addEventListener('click',()=>{
-  s2Visibility.all=!s2Visibility.all;applyS2Visibility();
+  s2Visibility.all=!s2Visibility.all;applyS2Visibility();scheduleSave();
 });
 document.querySelectorAll('.s2-sub-eye-static').forEach(btn=>{
   btn.addEventListener('click',()=>{
     const type=btn.dataset.type;
     s2Visibility.rows[type]=!s2Visibility.rows[type];
     applyS2Visibility();
+    scheduleSave();
   });
 });
 // DYNAMIC COLUMN WIDTH — matches S2 table columns
