@@ -1416,6 +1416,7 @@ function renderS2(){
         inp.dataset.bi=bi;inp.dataset.si=si;inp.dataset.di=di;
         inp.addEventListener('focus',()=>inp.select());
         inp.addEventListener('input',()=>{markAutonomous();w.s2Data[s2Key(bi,si,di)]=inp.value;});
+        inp.addEventListener('blur',()=>{ if(typeof forceSaveNow==='function') forceSaveNow(); });
         inp.addEventListener('mousedown',e=>e.stopPropagation());
         // keyboard nav
         inp.addEventListener('keydown',e=>{
@@ -1791,12 +1792,29 @@ function loadState(){
   } catch(e){ console.warn('Load failed', e); return false; }
 }
 
-// Auto-save: salva dopo ogni modifica con debounce 500ms
+// Auto-save: salva dopo ogni modifica con debounce 150ms
+// (ridotto da 500ms per minimizzare la finestra di rischio in caso
+// di chiusura brusca del browser, dove beforeunload/pagehide
+// potrebbero non fare in tempo a scattare)
 let saveTimer = null;
 function scheduleSave(){
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(saveState, 500);
+  saveTimer = setTimeout(saveState, 150);
 }
+
+// Salvataggio immediato (no debounce) prima che la pagina venga
+// chiusa, ricaricata, o messa in background — così l'ultima
+// modifica fatta non si perde se il debounce di 150ms non ha
+// ancora fatto in tempo a scattare.
+function forceSaveNow(){
+  clearTimeout(saveTimer);
+  saveState();
+}
+window.addEventListener('beforeunload', forceSaveNow);
+window.addEventListener('pagehide', forceSaveNow);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') forceSaveNow();
+});
 
 // Intercetta markAutonomous per triggherare il salvataggio
 const _origMarkAutonomous = markAutonomous;
