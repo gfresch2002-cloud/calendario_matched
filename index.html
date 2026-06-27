@@ -33,7 +33,7 @@
   -->
   <script>
     (function() {
-      var APP_VERSION = '2.0'; // ← AGGIORNA QUESTO AD OGNI DEPLOY
+      var APP_VERSION = '2.1'; // ← AGGIORNA QUESTO AD OGNI DEPLOY
 
       var storedVersion = localStorage.getItem('mb-cal-app-version');
       if (storedVersion !== APP_VERSION) {
@@ -117,6 +117,9 @@
 
     .s1-row-label .row-del{background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:13px;opacity:.5;transition:opacity .15s,color .15s;padding:0 2px}
     .s1-row-label .row-del:hover{opacity:1;color:var(--accent)}
+    .s1-row-label .row-lock{background:none;border:1px solid var(--border);border-radius:3px;color:var(--text-muted);cursor:pointer;font-size:10px;opacity:.5;transition:opacity .15s,color .15s,border-color .15s;padding:1px 3px;line-height:1}
+    .s1-row-label .row-lock:hover{opacity:1;border-color:var(--accent2);color:var(--accent2)}
+    .s1-row-label .row-lock.locked{opacity:1;border-color:var(--accent2);color:var(--accent2)}
     .s1-cell{height:32px;background:var(--surface);border-radius:var(--radius);border:1px dashed var(--border);position:relative;transition:background .1s}
     .s1-cell.drag-over{background:rgba(67,97,238,.18);border-color:var(--accent2)}
     .s1-cell.blocked{background:rgba(230,57,70,.12)}
@@ -246,7 +249,7 @@
     .s4-day-col.today-col{border-color:rgba(230,57,70,.35)}
     .s4-task-wrap{border-bottom:1px solid var(--border);padding-bottom:4px;margin-bottom:2px}
     .s4-task-wrap:last-of-type{border-bottom:none}
-    .s4-task-main{display:flex;align-items:center;gap:5px;padding:2px 0;font-size:11px;color:var(--text-dim)}
+    .s4-task-main{display:flex;align-items:center;gap:5px;padding:2px 0;font-size:11px;color:var(--text)}
     .s4-task-main input[type=checkbox]{accent-color:var(--accent);cursor:pointer;flex-shrink:0}
     .s4-task-main .t-text{flex:1;line-height:1.35;word-break:break-word;user-select:text}
     .s4-task-main.done .t-text{text-decoration:line-through;opacity:.45}
@@ -546,10 +549,12 @@ let customBookColors={};
 
 // ── WEEK STORE ──
 // weekStore[offset] = { autonomous:bool, s2Books, s2Data, s3ByDay, s3Tasks, s4Tasks }
-// I banners sono globali (non per settimana)
 const weekStore={};
-let s1Rows=10;
-let banners=[];
+// s1Rows e s1Banners sono per-settimana (in weekStore), non globali.
+// Questi accessor leggono/scrivono sempre sulla settimana corrente.
+function getBanners(){return getWeekState(weekOffset).s1Banners||(getWeekState(weekOffset).s1Banners=[]);}
+function getS1Rows(){return getWeekState(weekOffset).s1Rows!=null?getWeekState(weekOffset).s1Rows:1;}
+function setS1Rows(v){getWeekState(weekOffset).s1Rows=v;}
 
 // ── UTILS ──
 function getMondayOf(o){const n=new Date(),d=n.getDay(),diff=d===0?-6:1-d,m=new Date(n);m.setDate(n.getDate()+diff+o*7);m.setHours(0,0,0,0);return m;}
@@ -568,6 +573,8 @@ function deepClone(o){return JSON.parse(JSON.stringify(o));}
 function defaultWeekState(){
   return{
     autonomous:false,
+    s1Rows:1,
+    s1Banners:[],
     s2Books:deepClone(DEFAULT_BOOKS_S2),
     s2Data:{},
     s3ByDay:Array.from({length:7},()=>deepClone(DEFAULT_BOOKS_S3)),
@@ -578,8 +585,21 @@ function defaultWeekState(){
 
 // Crea una copia completamente isolata dello stato di una settimana
 function cloneStateFrom(src){
+  // S1: porta avanti solo i banner bloccati, resettati a done:false e con date traslate di 7 giorni
+  const lockedBanners=deepClone((src.s1Banners||[]).filter(b=>b.locked));
+  lockedBanners.forEach(b=>{
+    b.done=false;
+    if(b.accounts)b.accounts.forEach(a=>a.done=false);
+    // trasla le date di 7 giorni in avanti
+    const addDays=(iso,n)=>{const d=new Date(iso);d.setDate(d.getDate()+n);return toISO(d);};
+    b.startDate=addDays(b.startDate,7);
+    b.endDate=addDays(b.endDate,7);
+  });
+  const maxLockedRow=lockedBanners.length>0?Math.max(...lockedBanners.map(b=>b.row)):-1;
   const copy={
     autonomous:false,
+    s1Rows:Math.max(1,maxLockedRow+1),
+    s1Banners:lockedBanners,
     s2Books:deepClone(src.s2Books),
     s2Data:deepClone(src.s2Data),
     s3ByDay:deepClone(src.s3ByDay),
@@ -629,6 +649,27 @@ function propagateForward(fromOffset){
   weekStore[next]=cloneStateFrom(weekStore[fromOffset]);
   // ricorsione: propaga ancora in avanti se quella dopo esiste ed è non-autonoma
   propagateForward(next);
+}
+
+// Propaga solo la parte S1 (banner bloccati) alle settimane successive già visitate.
+// Va chiamata dopo ogni cambio di lucchetto, così le settimane già create
+// vengono aggiornate senza aspettare che l'utente le visiti di nuovo.
+function propagateS1Forward(fromOffset){
+  const next=fromOffset+1;
+  if(!weekStore[next]) return; // non ancora visitata, erediterà da sola via cloneStateFrom
+  if(weekStore[next].autonomous) return; // autonoma, non toccare
+  const lockedBanners=deepClone((weekStore[fromOffset].s1Banners||[]).filter(b=>b.locked));
+  lockedBanners.forEach(b=>{
+    b.done=false;
+    if(b.accounts)b.accounts.forEach(a=>a.done=false);
+    const addDays=(iso,n)=>{const d=new Date(iso);d.setDate(d.getDate()+n);return toISO(d);};
+    b.startDate=addDays(b.startDate,7);
+    b.endDate=addDays(b.endDate,7);
+  });
+  const maxLockedRow=lockedBanners.length>0?Math.max(...lockedBanners.map(b=>b.row)):-1;
+  weekStore[next].s1Banners=lockedBanners;
+  weekStore[next].s1Rows=Math.max(1,maxLockedRow+1);
+  propagateS1Forward(next);
 }
 
 function updateStatusBadge(){
@@ -693,7 +734,7 @@ function renderSettings(){
 }
 // EXPORT
 document.getElementById('settings-export').addEventListener('click',()=>{
-  const state={weekOffset,isDark,s1Rows,banners,weekStore,accountNames,customBookColors,s2Visibility,taskIdCounter};
+  const state={weekOffset,isDark,weekStore,accountNames,customBookColors,s2Visibility,taskIdCounter};
   const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
   a.download=`calendario_matched_${new Date().toISOString().slice(0,10)}.json`;
@@ -710,8 +751,6 @@ document.getElementById('settings-import').addEventListener('change',e=>{
       const state=JSON.parse(ev.target.result);
       if(state.weekOffset!==undefined) weekOffset=state.weekOffset;
       if(state.isDark!==undefined) isDark=state.isDark;
-      if(state.s1Rows!==undefined) s1Rows=state.s1Rows;
-      if(state.banners) banners=state.banners;
       if(state.weekStore) Object.keys(state.weekStore).forEach(k=>{weekStore[parseInt(k)]=state.weekStore[k];});
       if(state.accountNames) accountNames=state.accountNames;
     if(state.bookmakerNames) bookmakerNames=state.bookmakerNames;
@@ -748,7 +787,7 @@ document.getElementById('reset-confirm').addEventListener('click',()=>{
   // Clear everything
   localStorage.removeItem(STORAGE_KEY);
   // Reset all state variables
-  weekOffset=0; isDark=true; s1Rows=10; banners=[];
+  weekOffset=0; isDark=true;
   Object.keys(weekStore).forEach(k=>delete weekStore[k]);
   accountNames=[]; bookmakerNames=[]; customBookColors={};
   s2Visibility={all:true,rows:{Live:true,Sport:true,Offline:true}};
@@ -853,7 +892,7 @@ function updateWeekLabel(){const d=getWeekDays();document.getElementById('week-l
 //  S1 — BANNER
 // ══════════════════════════════════════════════════════
 let dragState=null;
-function isCellOccupied(row,dateISO,excludeId=null){return banners.some(b=>b.id!==excludeId&&b.row===row&&dateISO>=b.startDate&&dateISO<=b.endDate);}
+function isCellOccupied(row,dateISO,excludeId=null){return getBanners().some(b=>b.id!==excludeId&&b.row===row&&dateISO>=b.startDate&&dateISO<=b.endDate);}
 function isRangeOccupied(row,startISO,endISO){let c=fromISO(startISO),e=fromISO(endISO);while(c<=e){if(isCellOccupied(row,toISO(c)))return true;c=addDays(c,1);}return false;}
 
 function makeBannerDropdown(banner){
@@ -865,8 +904,9 @@ function makeBannerDropdown(banner){
     (banner.accounts||[]).forEach((acc,ai)=>{
       const item=document.createElement('div');item.className='bd-item';
       const cb=document.createElement('input');cb.type='checkbox';cb.checked=acc.done;
-      cb.addEventListener('mousedown',e=>e.stopPropagation());cb.addEventListener('change',()=>{banner.accounts[ai].done=cb.checked;});
       const span=document.createElement('span');span.textContent=acc.text;
+      if(acc.done){span.style.textDecoration='line-through';span.style.opacity='.5';}
+      cb.addEventListener('mousedown',e=>e.stopPropagation());cb.addEventListener('change',()=>{banner.accounts[ai].done=cb.checked;span.style.textDecoration=cb.checked?'line-through':'';span.style.opacity=cb.checked?'.5':'1';scheduleSave();});
       const del=document.createElement('button');del.className='bd-del';del.textContent='×';
       del.addEventListener('mousedown',e=>e.stopPropagation());del.addEventListener('click',()=>{banner.accounts.splice(ai,1);refreshDD();});
       item.appendChild(cb);item.appendChild(span);item.appendChild(del);dd.appendChild(item);
@@ -896,12 +936,21 @@ function renderS1(){
   while(hdr.children.length>1)hdr.removeChild(hdr.lastChild);
   days.forEach((d,i)=>{const el=document.createElement('div');el.className='day-cell'+(isToday(d)?' today':'');el.textContent=`${DAYS_SHORT[i]} ${fmtDate(d)}`;hdr.appendChild(el);});
   const grid=document.getElementById('s1-grid');grid.innerHTML='';
-  for(let row=0;row<s1Rows;row++){
+  for(let row=0;row<getS1Rows();row++){
     const lbl=document.createElement('div');lbl.className='s1-row-label';lbl.dataset.row=row;
     const num=document.createElement('span');num.className='row-num';num.textContent=row+1;
     const del=document.createElement('button');del.className='row-del';del.title='Rimuovi riga';del.textContent='×';
-    del.addEventListener('click',()=>{banners=banners.filter(b=>b.row!==row);s1Rows--;banners.forEach(b=>{if(b.row>row)b.row--;});renderS1();scheduleSave();});
-    lbl.appendChild(del);lbl.appendChild(num);grid.appendChild(lbl);
+    del.addEventListener('click',()=>{const ws=getWeekState(weekOffset);ws.s1Banners=ws.s1Banners.filter(b=>b.row!==row);ws.s1Rows--;ws.s1Banners.forEach(b=>{if(b.row>row)b.row--;});renderS1();scheduleSave();});
+    // lucchetto: bloccato se almeno un banner sulla riga ha locked:true
+    const isLocked=getBanners().some(b=>b.row===row&&b.locked);
+    const lock=document.createElement('button');lock.className='row-lock'+(isLocked?' locked':'');lock.title=isLocked?'Riga bloccata (clicca per sbloccare)':'Riga non bloccata (clicca per bloccare)';lock.textContent=isLocked?'🔒':'🔓';
+    lock.addEventListener('click',()=>{
+      const nowLocked=getBanners().some(b=>b.row===row&&b.locked);
+      getBanners().filter(b=>b.row===row).forEach(b=>b.locked=!nowLocked);
+      propagateS1Forward(weekOffset);
+      scheduleSave();renderS1();
+    });
+    lbl.appendChild(del);lbl.appendChild(num);lbl.appendChild(lock);grid.appendChild(lbl);
     for(let col=0;col<7;col++){
       const cell=document.createElement('div');cell.className='s1-cell';cell.dataset.row=row;cell.dataset.col=col;cell.dataset.iso=toISO(days[col]);
       cell.addEventListener('mousedown',e=>{if(e.button!==0)return;e.preventDefault();dragState={row,startCol:col,endCol:col};highlightDrag();});
@@ -909,7 +958,7 @@ function renderS1(){
       grid.appendChild(cell);
     }
   }
-  renderBanners(days);
+  requestAnimationFrame(()=>{updateRowVisibility();requestAnimationFrame(()=>renderBanners(days));});
 }
 
 function highlightDrag(){
@@ -920,16 +969,16 @@ function highlightDrag(){
 }
 
 function updateRowVisibility(){
-  for(let row=0;row<s1Rows;row++){
-    const rowBanners=banners.filter(b=>b.row===row);
+  for(let row=0;row<getS1Rows();row++){
+    const rowBanners=getBanners().filter(b=>b.row===row);
     const hasVisible=showHidden||rowBanners.some(b=>!b.done);
     const hasAny=rowBanners.length>0;
     const hide=hasAny&&!hasVisible;
     const lbl=document.querySelector(`.s1-row-label[data-row="${row}"]`);
-    if(lbl){lbl.style.visibility=hide?'hidden':'';lbl.style.height=hide?'0':'';lbl.style.overflow=hide?'hidden':'';}
+    if(lbl){lbl.style.display=hide?'none':'';}
     for(let col=0;col<7;col++){
       const cell=document.querySelector(`.s1-cell[data-row="${row}"][data-col="${col}"]`);
-      if(cell){cell.style.visibility=hide?'hidden':'';cell.style.height=hide?'0':'';cell.style.overflow=hide?'hidden':'';}
+      if(cell){cell.style.display=hide?'none':'';}
     }
   }
 }
@@ -954,7 +1003,7 @@ function renderBanners(days){
   const today=new Date(); today.setHours(0,0,0,0);
   const GAP=2; // px gap between cells
 
-  banners.forEach(banner=>{
+  getBanners().forEach(banner=>{
     if(!showHidden&&banner.done)return;
 
     // find which cols of this week are covered
@@ -1061,7 +1110,7 @@ function renderBanners(days){
     const cb=document.createElement('input');cb.type='checkbox';cb.className='b-check';cb.checked=banner.done;
     cb.style.position='relative';cb.style.zIndex='2';
     cb.addEventListener('mousedown',e=>e.stopPropagation());
-    cb.addEventListener('change',()=>{banner.done=cb.checked;renderBanners(days);scheduleSave();});
+    cb.addEventListener('change',()=>{banner.done=cb.checked;renderS1();scheduleSave();});
 
     // find today's col within covered cols to anchor title
     const todayISO=toISO(today);
@@ -1110,7 +1159,7 @@ function renderBanners(days){
 
     const delBtn=document.createElement('button');delBtn.className='b-del';delBtn.textContent='×';delBtn.style.position='relative';delBtn.style.zIndex='2';
     delBtn.addEventListener('mousedown',e=>e.stopPropagation());
-    delBtn.addEventListener('click',()=>{banners=banners.filter(b=>b.id!==banner.id);renderBanners(days);scheduleSave();});
+    delBtn.addEventListener('click',()=>{const ws=getWeekState(weekOffset);ws.s1Banners=ws.s1Banners.filter(b=>b.id!==banner.id);renderBanners(days);scheduleSave();});
 
     bar.appendChild(cb);bar.appendChild(titleSpan);bar.appendChild(expandBtn);bar.appendChild(delBtn);
     overlay.appendChild(bar);
@@ -1147,15 +1196,15 @@ document.addEventListener('mouseup',()=>{
   }
   openBannerModal(startISO,endISO,row,({title,startDate,endDate,time,type})=>{
     if(isRangeOccupied(row,startDate,endDate)){alert('Sovrapposizione rilevata sulla stessa riga.');return;}
-    banners.push({id:newId(),row,startDate,endDate,title,type,time,done:false,accounts:[]});
+    getBanners().push({id:newId(),row,startDate,endDate,title,type,time,done:false,locked:false,accounts:[]});
     // S1 non marca autonomia
     renderBanners(getWeekDays());
     scheduleSave();
   });
 });
 
-document.getElementById('s1-show-hidden').addEventListener('click',()=>{showHidden=!showHidden;document.getElementById('s1-show-hidden').classList.toggle('active',showHidden);document.getElementById('s1-show-hidden').textContent=showHidden?'Nascondi completati':'Mostra completati';renderBanners(getWeekDays());});
-document.getElementById('s1-add-row-btn').addEventListener('click',()=>{s1Rows++;renderS1();scheduleSave();});
+document.getElementById('s1-show-hidden').addEventListener('click',()=>{showHidden=!showHidden;document.getElementById('s1-show-hidden').classList.toggle('active',showHidden);document.getElementById('s1-show-hidden').textContent=showHidden?'Nascondi completati':'Mostra completati';renderS1();scheduleSave();});
+document.getElementById('s1-add-row-btn').addEventListener('click',()=>{setS1Rows(getS1Rows()+1);renderS1();scheduleSave();});
 
 
 // ══════════════════════════════════════════════════════
@@ -1758,13 +1807,12 @@ function saveState(){
     const state = {
       weekOffset,
       isDark,
-      s1Rows,
-      banners,
       weekStore,
       accountNames,
       bookmakerNames,
       customBookColors,
       s2Visibility,
+      showHidden,
       taskIdCounter
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -1779,8 +1827,6 @@ function loadState(){
     const state = JSON.parse(raw);
     if(state.weekOffset !== undefined) weekOffset = state.weekOffset;
     if(state.isDark !== undefined) isDark = state.isDark;
-    if(state.s1Rows !== undefined) s1Rows = state.s1Rows;
-    if(state.banners) banners = state.banners;
     if(state.weekStore){
       Object.keys(state.weekStore).forEach(k => {
         weekStore[parseInt(k)] = state.weekStore[k];
@@ -1790,6 +1836,7 @@ function loadState(){
     if(state.bookmakerNames) bookmakerNames = state.bookmakerNames;
     if(state.customBookColors) customBookColors = state.customBookColors;
     if(state.s2Visibility) s2Visibility = state.s2Visibility;
+    if(state.showHidden !== undefined) showHidden = state.showHidden;
     if(state.taskIdCounter) taskIdCounter = state.taskIdCounter;
     return true;
   } catch(e){ console.warn('Load failed', e); return false; }
@@ -1833,6 +1880,10 @@ renderAll = function(){
   scheduleSave();
 };
 
+// Reset S1 al cambio settimana:
+// - rimuove i banner non bloccati
+// - sui banner bloccati resetta done:false (ripartono come da completare)
+// - ricalcola s1Rows al minimo necessario per contenere le righe bloccate (min 10)
 document.getElementById('prev-week').addEventListener('click',()=>{weekOffset--;renderAll();});
 document.getElementById('next-week').addEventListener('click',()=>{weekOffset++;renderAll();});
 
