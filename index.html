@@ -557,7 +557,11 @@ function getS1Rows(){return getWeekState(weekOffset).s1Rows!=null?getWeekState(w
 function setS1Rows(v){getWeekState(weekOffset).s1Rows=v;}
 
 // ── UTILS ──
-function getMondayOf(o){const n=new Date(),d=n.getDay(),diff=d===0?-6:1-d,m=new Date(n);m.setDate(n.getDate()+diff+o*7);m.setHours(0,0,0,0);return m;}
+// anchorMonday: lunedì fisso di riferimento, calcolato una sola volta al primo avvio.
+let anchorMonday=null;
+function getThisMonday(){const n=new Date();const d=n.getDay();const diff=d===0?-6:1-d;const m=new Date(n);m.setDate(n.getDate()+diff);m.setHours(0,0,0,0);return m;}
+function getMondayOf(o){const a=anchorMonday||getThisMonday();const m=new Date(a);m.setDate(a.getDate()+o*7);return m;}
+function getTodayOffset(){const a=anchorMonday||getThisMonday();const t=getThisMonday();return Math.round((t-a)/(7*24*60*60*1000));}
 function addDays(d,n){const r=new Date(d);r.setDate(r.getDate()+n);return r;}
 function fmtDate(d){return d.toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit'});}
 function toISO(d){return d.toISOString().slice(0,10);}
@@ -787,7 +791,7 @@ document.getElementById('reset-confirm').addEventListener('click',()=>{
   // Clear everything
   localStorage.removeItem(STORAGE_KEY);
   // Reset all state variables
-  weekOffset=0; isDark=true;
+  weekOffset=0; isDark=true; anchorMonday=getThisMonday();
   Object.keys(weekStore).forEach(k=>delete weekStore[k]);
   accountNames=[]; bookmakerNames=[]; customBookColors={};
   s2Visibility={all:true,rows:{Live:true,Sport:true,Offline:true}};
@@ -1805,6 +1809,7 @@ const STORAGE_KEY = 'mb-cal-state-v1';
 function saveState(){
   try {
     const state = {
+      anchorMonday: anchorMonday ? toISO(anchorMonday) : toISO(getThisMonday()),
       weekOffset,
       isDark,
       weekStore,
@@ -1825,7 +1830,18 @@ function loadState(){
     const raw = localStorage.getItem(STORAGE_KEY);
     if(!raw) return false;
     const state = JSON.parse(raw);
-    if(state.weekOffset !== undefined) weekOffset = state.weekOffset;
+    // Ripristina l'ancora — se non presente (vecchio save) usa oggi come ancora
+    if(state.anchorMonday){
+      anchorMonday=fromISO(state.anchorMonday);
+    } else {
+      anchorMonday=getThisMonday();
+    }
+    // weekOffset salvato: lo usiamo solo se presente, altrimenti calcoliamo "oggi"
+    if(state.weekOffset !== undefined){
+      weekOffset=state.weekOffset;
+    } else {
+      weekOffset=getTodayOffset();
+    }
     if(state.isDark !== undefined) isDark = state.isDark;
     if(state.weekStore){
       Object.keys(state.weekStore).forEach(k => {
@@ -1889,6 +1905,12 @@ document.getElementById('next-week').addEventListener('click',()=>{weekOffset++;
 
 // Carica stato salvato, poi render
 loadState();
+// Se anchorMonday non è stato caricato (primo avvio assoluto),
+// lo inizializzo ora e imposto weekOffset su "questa settimana" = 0
+if(!anchorMonday){
+  anchorMonday=getThisMonday();
+  weekOffset=0;
+}
 // Applica tema salvato
 if(!isDark){
   document.body.classList.add('light');
