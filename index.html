@@ -564,7 +564,7 @@ function getMondayOf(o){const a=anchorMonday||getThisMonday();const m=new Date(a
 function getTodayOffset(){const a=anchorMonday||getThisMonday();const t=getThisMonday();return Math.round((t-a)/(7*24*60*60*1000));}
 function addDays(d,n){const r=new Date(d);r.setDate(r.getDate()+n);return r;}
 function fmtDate(d){return d.toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit'});}
-function toISO(d){return d.toISOString().slice(0,10);}
+function toISO(d){const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),dd=String(d.getDate()).padStart(2,'0');return `${y}-${m}-${dd}`;}
 function fromISO(s){const[y,m,dd]=s.split('-');const d=new Date(y,m-1,dd);d.setHours(0,0,0,0);return d;}
 function isToday(d){const t=new Date();t.setHours(0,0,0,0);return d.getTime()===t.getTime();}
 function getWeekDays(){const m=getMondayOf(weekOffset);return Array.from({length:7},(_,i)=>addDays(m,i));}
@@ -595,7 +595,7 @@ function cloneStateFrom(src){
     b.done=false;
     if(b.accounts)b.accounts.forEach(a=>a.done=false);
     // trasla le date di 7 giorni in avanti
-    const addDays=(iso,n)=>{const d=new Date(iso);d.setDate(d.getDate()+n);return toISO(d);};
+    const addDays=(iso,n)=>{const d=fromISO(iso);d.setDate(d.getDate()+n);return toISO(d);};
     b.startDate=addDays(b.startDate,7);
     b.endDate=addDays(b.endDate,7);
   });
@@ -666,7 +666,7 @@ function propagateS1Forward(fromOffset){
   lockedBanners.forEach(b=>{
     b.done=false;
     if(b.accounts)b.accounts.forEach(a=>a.done=false);
-    const addDays=(iso,n)=>{const d=new Date(iso);d.setDate(d.getDate()+n);return toISO(d);};
+    const addDays=(iso,n)=>{const d=fromISO(iso);d.setDate(d.getDate()+n);return toISO(d);};
     b.startDate=addDays(b.startDate,7);
     b.endDate=addDays(b.endDate,7);
   });
