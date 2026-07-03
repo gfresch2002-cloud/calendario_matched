@@ -136,6 +136,8 @@
     .s1-banner-bar .b-expand:hover{opacity:1;}
     .s1-banner-bar.expanded .b-expand{transform:rotate(180deg);}
     .s1-banner-bar .b-del{background:none;border:none;color:inherit;opacity:.5;cursor:pointer;font-size:14px;padding:0 2px;flex-shrink:0;transition:opacity .15s;}
+    .s1-banner-bar .b-edit{background:none;border:none;color:inherit;opacity:.5;cursor:pointer;font-size:12px;padding:0 2px;flex-shrink:0;transition:opacity .15s;}
+    .s1-banner-bar .b-edit:hover{opacity:1;}
     .s1-banner-bar .b-del:hover{opacity:1;}
     /* shimmer per-banner: animazione generata dinamicamente via JS come bonusShimmerAnim */
     .s1-shimmer-wrap{display:none;}
@@ -579,6 +581,7 @@ function defaultWeekState(){
     autonomous:false,
     s1Rows:1,
     s1Banners:[],
+    s1LockedRows:[],
     s2Books:deepClone(DEFAULT_BOOKS_S2),
     s2Data:{},
     s3ByDay:Array.from({length:7},()=>deepClone(DEFAULT_BOOKS_S3)),
@@ -590,7 +593,8 @@ function defaultWeekState(){
 // Crea una copia completamente isolata dello stato di una settimana
 function cloneStateFrom(src){
   // S1: porta avanti solo i banner bloccati, resettati a done:false e con date traslate di 7 giorni
-  const lockedBanners=deepClone((src.s1Banners||[]).filter(b=>b.locked));
+  const lockedRows=src.s1LockedRows||[];
+  const lockedBanners=deepClone((src.s1Banners||[]).filter(b=>lockedRows.includes(b.row)));
   lockedBanners.forEach(b=>{
     b.done=false;
     if(b.accounts)b.accounts.forEach(a=>a.done=false);
@@ -604,6 +608,7 @@ function cloneStateFrom(src){
     autonomous:false,
     s1Rows:Math.max(1,maxLockedRow+1),
     s1Banners:lockedBanners,
+    s1LockedRows:deepClone((src.s1LockedRows||[])),
     s2Books:deepClone(src.s2Books),
     s2Data:deepClone(src.s2Data),
     s3ByDay:deepClone(src.s3ByDay),
@@ -662,7 +667,8 @@ function propagateS1Forward(fromOffset){
   const next=fromOffset+1;
   if(!weekStore[next]) return; // non ancora visitata, erediterà da sola via cloneStateFrom
   if(weekStore[next].autonomous) return; // autonoma, non toccare
-  const lockedBanners=deepClone((weekStore[fromOffset].s1Banners||[]).filter(b=>b.locked));
+  const lockedRows=weekStore[fromOffset].s1LockedRows||[];
+  const lockedBanners=deepClone((weekStore[fromOffset].s1Banners||[]).filter(b=>lockedRows.includes(b.row)));
   lockedBanners.forEach(b=>{
     b.done=false;
     if(b.accounts)b.accounts.forEach(a=>a.done=false);
@@ -868,6 +874,22 @@ function openBannerModal(startISO,endISO,row,cb){
   mbType='bonus';document.getElementById('mb-type-bonus').classList.add('sel');document.getElementById('mb-type-qual').classList.remove('sel');document.getElementById('mb-type-focus').classList.remove('sel');
   document.getElementById('modal-banner').classList.add('active');setTimeout(()=>document.getElementById('mb-title').focus(),50);mbCallback=cb;
 }
+function openBannerModalEdit(banner){
+  document.getElementById('mb-title').value=banner.title||'';
+  document.getElementById('mb-start').value=banner.startDate;
+  document.getElementById('mb-end').value=banner.endDate;
+  document.getElementById('mb-time').value=banner.time||'23:59';
+  mbType=banner.type||'bonus';
+  document.getElementById('mb-type-bonus').classList.toggle('sel',mbType==='bonus');
+  document.getElementById('mb-type-qual').classList.toggle('sel',mbType==='qualificante');
+  document.getElementById('mb-type-focus').classList.toggle('sel',mbType==='focus');
+  document.getElementById('modal-banner').classList.add('active');
+  setTimeout(()=>document.getElementById('mb-title').focus(),50);
+  mbCallback=({title,startDate,endDate,time,type})=>{
+    banner.title=title;banner.startDate=startDate;banner.endDate=endDate;banner.time=time;banner.type=type;
+    renderS1();scheduleSave();
+  };
+}
 document.getElementById('mb-type-bonus').addEventListener('click',()=>{mbType='bonus';document.getElementById('mb-type-bonus').classList.add('sel');document.getElementById('mb-type-qual').classList.remove('sel');document.getElementById('mb-type-focus').classList.remove('sel');});
 document.getElementById('mb-type-qual').addEventListener('click',()=>{mbType='qualificante';document.getElementById('mb-type-qual').classList.add('sel');document.getElementById('mb-type-bonus').classList.remove('sel');document.getElementById('mb-type-focus').classList.remove('sel');});
 document.getElementById('mb-type-focus').addEventListener('click',()=>{mbType='focus';document.getElementById('mb-type-focus').classList.add('sel');document.getElementById('mb-type-bonus').classList.remove('sel');document.getElementById('mb-type-qual').classList.remove('sel');});
@@ -946,11 +968,17 @@ function renderS1(){
     const del=document.createElement('button');del.className='row-del';del.title='Rimuovi riga';del.textContent='×';
     del.addEventListener('click',()=>{const ws=getWeekState(weekOffset);ws.s1Banners=ws.s1Banners.filter(b=>b.row!==row);ws.s1Rows--;ws.s1Banners.forEach(b=>{if(b.row>row)b.row--;});renderS1();scheduleSave();});
     // lucchetto: bloccato se almeno un banner sulla riga ha locked:true
-    const isLocked=getBanners().some(b=>b.row===row&&b.locked);
+    const lockedRows=getWeekState(weekOffset).s1LockedRows||(getWeekState(weekOffset).s1LockedRows=[]);
+    const isLocked=lockedRows.includes(row);
     const lock=document.createElement('button');lock.className='row-lock'+(isLocked?' locked':'');lock.title=isLocked?'Riga bloccata (clicca per sbloccare)':'Riga non bloccata (clicca per bloccare)';lock.textContent=isLocked?'🔒':'🔓';
     lock.addEventListener('click',()=>{
-      const nowLocked=getBanners().some(b=>b.row===row&&b.locked);
-      getBanners().filter(b=>b.row===row).forEach(b=>b.locked=!nowLocked);
+      const ws=getWeekState(weekOffset);
+      if(!ws.s1LockedRows) ws.s1LockedRows=[];
+      const idx=ws.s1LockedRows.indexOf(row);
+      if(idx>=0) ws.s1LockedRows.splice(idx,1);
+      else ws.s1LockedRows.push(row);
+      // aggiorna anche locked sui banner della riga per coerenza
+      getBanners().filter(b=>b.row===row).forEach(b=>b.locked=ws.s1LockedRows.includes(row));
       propagateS1Forward(weekOffset);
       scheduleSave();renderS1();
     });
@@ -1165,7 +1193,11 @@ function renderBanners(days){
     delBtn.addEventListener('mousedown',e=>e.stopPropagation());
     delBtn.addEventListener('click',()=>{const ws=getWeekState(weekOffset);ws.s1Banners=ws.s1Banners.filter(b=>b.id!==banner.id);renderBanners(days);scheduleSave();});
 
-    bar.appendChild(cb);bar.appendChild(titleSpan);bar.appendChild(expandBtn);bar.appendChild(delBtn);
+    const editBtn=document.createElement('button');editBtn.className='b-edit';editBtn.textContent='✏️';editBtn.title='Modifica';editBtn.style.position='relative';editBtn.style.zIndex='2';
+    editBtn.addEventListener('mousedown',e=>e.stopPropagation());
+    editBtn.addEventListener('click',e=>{e.stopPropagation();openBannerModalEdit(banner);});
+
+    bar.appendChild(cb);bar.appendChild(titleSpan);bar.appendChild(expandBtn);bar.appendChild(editBtn);bar.appendChild(delBtn);
     overlay.appendChild(bar);
     overlay.appendChild(dd); // dropdown fuori dalla bar
 
@@ -1833,6 +1865,8 @@ function loadState(){
     // Ripristina l'ancora — se non presente (vecchio save) usa oggi come ancora
     if(state.anchorMonday){
       anchorMonday=fromISO(state.anchorMonday);
+      // validazione: se per qualche motivo l'ancora salvata non è un lunedì, ricalcola
+      if(anchorMonday.getDay()!==1) anchorMonday=getThisMonday();
     } else {
       anchorMonday=getThisMonday();
     }
