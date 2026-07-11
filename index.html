@@ -33,7 +33,7 @@
   -->
   <script>
     (function() {
-      var APP_VERSION = '2.2'; // ← AGGIORNA QUESTO AD OGNI DEPLOY
+      var APP_VERSION = '2.3'; // ← AGGIORNA QUESTO AD OGNI DEPLOY
 
       var storedVersion = localStorage.getItem('mb-cal-app-version');
       if (storedVersion !== APP_VERSION) {
@@ -598,17 +598,18 @@ function cloneStateFrom(src){
   lockedBanners.forEach(b=>{
     b.done=false;
     if(b.accounts)b.accounts.forEach(a=>a.done=false);
-    // trasla le date di 7 giorni in avanti
     const addDays=(iso,n)=>{const d=fromISO(iso);d.setDate(d.getDate()+n);return toISO(d);};
     b.startDate=addDays(b.startDate,7);
     b.endDate=addDays(b.endDate,7);
   });
-  const maxLockedRow=lockedBanners.length>0?Math.max(...lockedBanners.map(b=>b.row)):-1;
+  // riassegna le righe bloccate in ordine compatto (0,1,2...)
+  lockedBanners.forEach((b,i)=>b.row=i);
+  const nLocked=lockedBanners.length;
   const copy={
     autonomous:false,
-    s1Rows:Math.max(1,maxLockedRow+1),
+    s1Rows:Math.max(1,nLocked),
     s1Banners:lockedBanners,
-    s1LockedRows:deepClone((src.s1LockedRows||[])),
+    s1LockedRows:lockedBanners.map((_,i)=>i),
     s2Books:deepClone(src.s2Books),
     s2Data:deepClone(src.s2Data),
     s3ByDay:deepClone(src.s3ByDay),
@@ -676,9 +677,18 @@ function propagateS1Forward(fromOffset){
     b.startDate=addDays(b.startDate,7);
     b.endDate=addDays(b.endDate,7);
   });
-  const maxLockedRow=lockedBanners.length>0?Math.max(...lockedBanners.map(b=>b.row)):-1;
-  weekStore[next].s1Banners=lockedBanners;
-  weekStore[next].s1Rows=Math.max(1,maxLockedRow+1);
+  // riassegna le righe bloccate in ordine compatto (0,1,2...)
+  lockedBanners.forEach((b,i)=>b.row=i);
+  const nLocked=lockedBanners.length;
+  const ws=weekStore[next];
+  // salva snapshot pre-blocco se non già salvato
+  if(!ws._prelock) ws._prelock={s1Banners:deepClone(ws.s1Banners||[]),s1Rows:ws.s1Rows||1,s1LockedRows:deepClone(ws.s1LockedRows||[])};
+  // scala le righe esistenti verso il basso di nLocked posizioni
+  const existingBanners=deepClone(ws._prelock.s1Banners).map(b=>({...b,row:b.row+nLocked}));
+  const existingRows=(ws._prelock.s1Rows||1)+nLocked;
+  ws.s1Banners=[...lockedBanners,...existingBanners];
+  ws.s1Rows=Math.max(1,existingRows);
+  ws.s1LockedRows=lockedBanners.map((_,i)=>i);
   propagateS1Forward(next);
 }
 
@@ -828,6 +838,18 @@ document.getElementById('settings-acc-add').addEventListener('click',()=>{
 document.getElementById('settings-acc-input').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('settings-acc-add').click();});
 
 // ══════════════════════════════════════════════════════
+//  SLASH COMMAND /all — inserisce tutti gli account in sequenza
+// ══════════════════════════════════════════════════════
+// doAdd: funzione che aggiunge un singolo elemento (prende il testo)
+// inp: il campo input da cui è partito il comando
+function handleSlashAll(inp,doAdd){
+  if(!accountNames.length)return false;
+  inp.value='';
+  accountNames.forEach(name=>doAdd(name));
+  return true;
+}
+
+// ══════════════════════════════════════════════════════
 //  AUTOCOMPLETE HELPER
 // ══════════════════════════════════════════════════════
 function attachAutocomplete(inp,onSelect){
@@ -854,6 +876,12 @@ function attachAutocomplete(inp,onSelect){
   }
   inp.addEventListener('input',()=>refreshPills());
   inp.addEventListener('blur',()=>setTimeout(()=>{if(pillsDiv){pillsDiv.remove();pillsDiv=null;}},200));
+  inp.addEventListener('keydown',e=>{
+    if(e.key==='Enter'&&pillsDiv){
+      const first=pillsDiv.querySelector('.ac-pill');
+      if(first){e.preventDefault();e.stopPropagation();const name=first.textContent;inp.value=name;if(pillsDiv){pillsDiv.remove();pillsDiv=null;}if(onSelect)onSelect(name);}
+    }
+  });
 }
 
 // ══════════════════════════════════════════════════════
@@ -949,7 +977,7 @@ function makeBannerDropdown(banner){
     attachAutocomplete(inp,v=>{inp.value=v;});
     const btn=document.createElement('button');btn.textContent='+';
     btn.addEventListener('mousedown',e=>e.stopPropagation());
-    const doAdd=()=>{const v=inp.value.trim();if(!v)return;if(!banner.accounts)banner.accounts=[];banner.accounts.push({id:newId(),text:v,done:false});inp.value='';refreshDD();};
+    const doAdd=()=>{const v=inp.value.trim();if(!v)return;if(v==='/all'){handleSlashAll(inp,n=>{if(!banner.accounts)banner.accounts=[];banner.accounts.push({id:newId(),text:n,done:false});});refreshDD();return;}if(!banner.accounts)banner.accounts=[];banner.accounts.push({id:newId(),text:v,done:false});inp.value='';refreshDD();};
     btn.addEventListener('click',doAdd);inp.addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter'){doAdd();}});
     addRow.appendChild(inpWrap);addRow.appendChild(btn);dd.appendChild(addRow);
   }
@@ -975,10 +1003,22 @@ function renderS1(){
       const ws=getWeekState(weekOffset);
       if(!ws.s1LockedRows) ws.s1LockedRows=[];
       const idx=ws.s1LockedRows.indexOf(row);
-      if(idx>=0) ws.s1LockedRows.splice(idx,1);
+      const wasLocked=idx>=0;
+      if(wasLocked) ws.s1LockedRows.splice(idx,1);
       else ws.s1LockedRows.push(row);
       // aggiorna anche locked sui banner della riga per coerenza
       getBanners().filter(b=>b.row===row).forEach(b=>b.locked=ws.s1LockedRows.includes(row));
+      // se si sta sbloccando: ripristina _prelock nella settimana successiva se esiste
+      if(wasLocked){
+        const next=weekOffset+1;
+        if(weekStore[next]&&weekStore[next]._prelock){
+          const pre=weekStore[next]._prelock;
+          weekStore[next].s1Banners=deepClone(pre.s1Banners);
+          weekStore[next].s1Rows=pre.s1Rows;
+          weekStore[next].s1LockedRows=deepClone(pre.s1LockedRows);
+          delete weekStore[next]._prelock;
+        }
+      }
       propagateS1Forward(weekOffset);
       scheduleSave();renderS1();
     });
@@ -1147,6 +1187,19 @@ function renderBanners(days){
     // find today's col within covered cols to anchor title
     const todayISO=toISO(today);
     const todayCol=coveredCols.find(c=>c.iso===todayISO);
+
+    // Il secondo giorno del banner (coveredCols[1]) è il minimo da cui parte il titolo —
+    // il primo giorno è riservato ai bottoni (cb, ▼, ✏️, ×) per evitare sovrapposizioni.
+    const secondCol=coveredCols.length>1?coveredCols[1]:null;
+    let secondDayLeft=null;
+    if(secondCol){
+      const secondCell=document.querySelector(`.s1-cell[data-row="${banner.row}"][data-col="${secondCol.col}"]`);
+      if(secondCell){
+        const scRect=secondCell.getBoundingClientRect();
+        secondDayLeft=scRect.left-gridRect.left-left;
+      }
+    }
+
     let titleLeftOffset=null;
     if(todayCol){
       const todayCell=document.querySelector(`.s1-cell[data-row="${banner.row}"][data-col="${todayCol.col}"]`);
@@ -1155,13 +1208,19 @@ function renderBanners(days){
         titleLeftOffset=tcRect.left-gridRect.left-left+6;
       }
     }
+    // Il titolo non può mai partire prima del secondo giorno
+    if(secondDayLeft!==null){
+      if(titleLeftOffset===null) titleLeftOffset=secondDayLeft;
+      else titleLeftOffset=Math.max(titleLeftOffset,secondDayLeft);
+    }
 
     const titleSpan=document.createElement('span');titleSpan.className='b-title';titleSpan.textContent=banner.title;
     titleSpan.style.position='relative';titleSpan.style.zIndex='2';
-    // pinna il titolo alla colonna di oggi solo se c'è spazio sufficiente (min 40px)
-    const pinnedLeft=Math.max(60,titleLeftOffset||0);
-    const availableSpace=width-pinnedLeft-52;
-    if(titleLeftOffset!==null && titleLeftOffset>0 && availableSpace>=40){
+    // pinna il titolo al secondo giorno (o oggi se successivo) solo se c'è spazio sufficiente
+    // Se il banner dura un solo giorno (secondDayLeft===null), titolo in flow normale
+    const pinnedLeft=titleLeftOffset!==null?titleLeftOffset:null;
+    const availableSpace=pinnedLeft!==null?width-pinnedLeft-52:0;
+    if(secondDayLeft!==null && pinnedLeft!==null && availableSpace>=40){
       titleSpan.style.position='absolute';
       titleSpan.style.left=pinnedLeft+'px';
       titleSpan.style.right='52px';
@@ -1169,7 +1228,7 @@ function renderBanners(days){
       titleSpan.style.textOverflow='ellipsis';
       titleSpan.style.whiteSpace='nowrap';
     } else {
-      // spazio insufficiente o banner non copre oggi: titolo in flow normale
+      // banner di un solo giorno o spazio insufficiente: titolo in flow normale
       titleSpan.style.flex='1';
       titleSpan.style.overflow='hidden';
       titleSpan.style.textOverflow='ellipsis';
@@ -1565,7 +1624,7 @@ function makeS3Body(dayIdx,bookName,color){
     attachAutocomplete(inp,v=>{inp.value=v;});
     acWrap.appendChild(inp);
     const btn=document.createElement('button');btn.textContent='+';
-    const doAdd=()=>{const v=inp.value.trim();if(!v)return;markAutonomous();const arr=getS3T(dayIdx,bookName);arr.push({id:newId(),text:v,done:false});setS3T(dayIdx,bookName,arr);refresh();};
+    const doAdd=()=>{const v=inp.value.trim();if(!v)return;if(v==='/all'){handleSlashAll(inp,n=>{markAutonomous();const arr=getS3T(dayIdx,bookName);arr.push({id:newId(),text:n,done:false});setS3T(dayIdx,bookName,arr);});refresh();return;}markAutonomous();const arr=getS3T(dayIdx,bookName);arr.push({id:newId(),text:v,done:false});setS3T(dayIdx,bookName,arr);inp.value='';refresh();};
     btn.addEventListener('click',doAdd);inp.addEventListener('keydown',e=>{if(e.key==='Enter')doAdd();});
     addRow.appendChild(acWrap);addRow.appendChild(btn);body.appendChild(addRow);
   }
@@ -1759,7 +1818,7 @@ function renderS4(){
           attachAutocomplete(subInp,v=>{subInp.value=v;});
           acWrap.appendChild(subInp);
           const subBtn=document.createElement('button');subBtn.textContent='+';
-          const doAddSub=()=>{const v=subInp.value.trim();if(!v)return;markAutonomous();if(!task.subtasks)task.subtasks=[];task.subtasks.push({id:newId(),text:v,done:false});subInp.value='';refreshSubs();};
+          const doAddSub=()=>{const v=subInp.value.trim();if(!v)return;if(v==='/all'){handleSlashAll(subInp,n=>{markAutonomous();if(!task.subtasks)task.subtasks=[];task.subtasks.push({id:newId(),text:n,done:false});});refreshSubs();return;}markAutonomous();if(!task.subtasks)task.subtasks=[];task.subtasks.push({id:newId(),text:v,done:false});subInp.value='';refreshSubs();};
           subBtn.addEventListener('click',doAddSub);subInp.addEventListener('keydown',e=>{if(e.key==='Enter')doAddSub();});
           subAdd.appendChild(acWrap);subAdd.appendChild(subBtn);subList.appendChild(subAdd);
         }
@@ -1772,7 +1831,7 @@ function renderS4(){
       attachAutocomplete(inp,v=>{inp.value=v;});
       acWrap.appendChild(inp);
       const btn=document.createElement('button');btn.textContent='+';
-      const doAdd=()=>{const v=inp.value.trim();if(!v)return;markAutonomous();w.s4Tasks[dayIdx].push({id:newId(),text:v,done:false,subtasks:[]});refreshS4();};
+      const doAdd=()=>{const v=inp.value.trim();if(!v)return;if(v==='/all'){handleSlashAll(inp,n=>{markAutonomous();w.s4Tasks[dayIdx].push({id:newId(),text:n,done:false,subtasks:[]});});refreshS4();return;}markAutonomous();w.s4Tasks[dayIdx].push({id:newId(),text:v,done:false,subtasks:[]});inp.value='';refreshS4();};
       btn.addEventListener('click',doAdd);inp.addEventListener('keydown',e=>{if(e.key==='Enter')doAdd();});
       addRow.appendChild(acWrap);addRow.appendChild(btn);col.appendChild(addRow);
     }
