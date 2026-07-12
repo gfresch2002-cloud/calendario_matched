@@ -33,7 +33,7 @@
   -->
   <script>
     (function() {
-      var APP_VERSION = '2.3.2'; // ← AGGIORNA QUESTO AD OGNI DEPLOY
+      var APP_VERSION = '2.3.3'; // ← AGGIORNA QUESTO AD OGNI DEPLOY
 
       var storedVersion = localStorage.getItem('mb-cal-app-version');
       if (storedVersion !== APP_VERSION) {
@@ -666,8 +666,8 @@ function propagateForward(fromOffset){
 // vengono aggiornate senza aspettare che l'utente le visiti di nuovo.
 function propagateS1Forward(fromOffset){
   const next=fromOffset+1;
-  if(!weekStore[next]) return; // non ancora visitata, erediterà da sola via cloneStateFrom
-  if(weekStore[next].autonomous) return; // autonoma, non toccare
+  if(!weekStore[next]) return;
+  if(weekStore[next].autonomous) return;
   const lockedRows=weekStore[fromOffset].s1LockedRows||[];
   const lockedBanners=deepClone((weekStore[fromOffset].s1Banners||[]).filter(b=>lockedRows.includes(b.row)));
   lockedBanners.forEach(b=>{
@@ -677,13 +677,10 @@ function propagateS1Forward(fromOffset){
     b.startDate=addDays(b.startDate,7);
     b.endDate=addDays(b.endDate,7);
   });
-  // riassegna le righe bloccate in ordine compatto (0,1,2...)
   lockedBanners.forEach((b,i)=>b.row=i);
   const nLocked=lockedBanners.length;
   const ws=weekStore[next];
-  // salva snapshot pre-blocco se non già salvato
-  if(!ws._prelock) ws._prelock={s1Banners:deepClone(ws.s1Banners||[]),s1Rows:ws.s1Rows||1,s1LockedRows:deepClone(ws.s1LockedRows||[])};
-  // scala le righe esistenti verso il basso di nLocked posizioni
+  // ricostruisce sempre da _prelock + banner bloccati aggiornati
   const existingBanners=deepClone(ws._prelock.s1Banners).map(b=>({...b,row:b.row+nLocked}));
   const existingRows=(ws._prelock.s1Rows||1)+nLocked;
   ws.s1Banners=[...lockedBanners,...existingBanners];
@@ -1008,6 +1005,17 @@ function renderS1(){
       else ws.s1LockedRows.push(row);
       // aggiorna anche locked sui banner della riga per coerenza
       getBanners().filter(b=>b.row===row).forEach(b=>b.locked=ws.s1LockedRows.includes(row));
+      // se si sta bloccando: salva _prelock nella settimana successiva PRIMA della propagazione
+      if(!wasLocked){
+        const next=weekOffset+1;
+        if(weekStore[next]&&!weekStore[next]._prelock){
+          weekStore[next]._prelock={
+            s1Banners:deepClone(weekStore[next].s1Banners||[]),
+            s1Rows:weekStore[next].s1Rows||1,
+            s1LockedRows:deepClone(weekStore[next].s1LockedRows||[])
+          };
+        }
+      }
       // se si sta sbloccando: ripristina _prelock nella settimana successiva se esiste
       if(wasLocked){
         const next=weekOffset+1;
