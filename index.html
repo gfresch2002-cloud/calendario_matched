@@ -33,7 +33,7 @@
   -->
   <script>
     (function() {
-      var APP_VERSION = '2.3.1'; // ← AGGIORNA QUESTO AD OGNI DEPLOY
+      var APP_VERSION = '2.3.2'; // ← AGGIORNA QUESTO AD OGNI DEPLOY
 
       var storedVersion = localStorage.getItem('mb-cal-app-version');
       if (storedVersion !== APP_VERSION) {
@@ -754,7 +754,7 @@ function renderSettings(){
 }
 // EXPORT
 document.getElementById('settings-export').addEventListener('click',()=>{
-  const state={weekOffset,isDark,weekStore,accountNames,customBookColors,s2Visibility,taskIdCounter};
+  const state={weekOffset,isDark,weekStore,accountNames,bookmakerNames,customBookColors,s2Visibility,taskIdCounter};
   const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);
   a.download=`calendario_matched_${new Date().toISOString().slice(0,10)}.json`;
