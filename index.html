@@ -33,7 +33,7 @@
   -->
   <script>
     (function() {
-      var APP_VERSION = '3.0.1'; // ← AGGIORNA QUESTO AD OGNI DEPLOY
+      var APP_VERSION = '3.0.2'; // ← AGGIORNA QUESTO AD OGNI DEPLOY
 
       var storedVersion = localStorage.getItem('mb-cal-app-version');
       if (storedVersion !== APP_VERSION) {
@@ -1000,7 +1000,7 @@ function makeBannerDropdown(banner){
     attachAutocomplete(inp,v=>{inp.value=v;});
     const btn=document.createElement('button');btn.textContent='+';
     btn.addEventListener('mousedown',e=>e.stopPropagation());
-    const doAdd=()=>{const v=inp.value.trim();if(!v)return;if(v==='/all'){handleSlashAll(inp,n=>{if(!banner.accounts)banner.accounts=[];banner.accounts.push({id:newId(),text:n,done:false});});refreshDD();return;}if(!banner.accounts)banner.accounts=[];banner.accounts.push({id:newId(),text:v,done:false});inp.value='';refreshDD();};
+    const doAdd=()=>{const v=inp.value.trim();if(!v)return;if(v.toLowerCase()==='/all'){handleSlashAll(inp,n=>{if(!banner.accounts)banner.accounts=[];banner.accounts.push({id:newId(),text:n,done:false});});refreshDD();return;}if(!banner.accounts)banner.accounts=[];banner.accounts.push({id:newId(),text:v,done:false});inp.value='';refreshDD();};
     btn.addEventListener('click',doAdd);inp.addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Enter'){doAdd();}});
     addRow.appendChild(inpWrap);addRow.appendChild(btn);dd.appendChild(addRow);
   }
@@ -1017,7 +1017,18 @@ function renderS1(){
     const lbl=document.createElement('div');lbl.className='s1-row-label';lbl.dataset.row=row;
     const num=document.createElement('span');num.className='row-num';num.textContent=row+1;
     const del=document.createElement('button');del.className='row-del';del.title='Rimuovi riga';del.textContent='×';
-    del.addEventListener('click',()=>{const ws=getWeekState(weekOffset);ws.s1Banners=ws.s1Banners.filter(b=>b.row!==row);ws.s1Rows--;ws.s1Banners.forEach(b=>{if(b.row>row)b.row--;});renderS1();scheduleSave();});
+    del.addEventListener('click',()=>{
+      const ws=getWeekState(weekOffset);
+      ws.s1Banners=ws.s1Banners.filter(b=>b.row!==row);
+      ws.s1Rows--;
+      ws.s1Banners.forEach(b=>{if(b.row>row)b.row--;});
+      if(ws.s1LockedRows){
+        ws.s1LockedRows=ws.s1LockedRows.filter(r=>r!==row).map(r=>r>row?r-1:r);
+        ws.s1Banners.forEach(b=>{b.locked=ws.s1LockedRows.includes(b.row);});
+      }
+      propagateS1Forward(weekOffset);
+      renderS1();scheduleSave();
+    });
     // lucchetto: bloccato se almeno un banner sulla riga ha locked:true
     const lockedRows=getWeekState(weekOffset).s1LockedRows||(getWeekState(weekOffset).s1LockedRows=[]);
     const isLocked=lockedRows.includes(row);
@@ -1704,7 +1715,7 @@ function makeS3Body(dayIdx,bookName,color){
     attachAutocomplete(inp,v=>{inp.value=v;});
     acWrap.appendChild(inp);
     const btn=document.createElement('button');btn.textContent='+';
-    const doAdd=()=>{const v=inp.value.trim();if(!v)return;if(v==='/all'){handleSlashAll(inp,n=>{markAutonomous();const arr=getS3T(dayIdx,bookName);arr.push({id:newId(),text:n,done:false});setS3T(dayIdx,bookName,arr);});refresh();return;}markAutonomous();const arr=getS3T(dayIdx,bookName);arr.push({id:newId(),text:v,done:false});setS3T(dayIdx,bookName,arr);inp.value='';refresh();};
+    const doAdd=()=>{const v=inp.value.trim();if(!v)return;if(v.toLowerCase()==='/all'){handleSlashAll(inp,n=>{markAutonomous();const arr=getS3T(dayIdx,bookName);arr.push({id:newId(),text:n,done:false});setS3T(dayIdx,bookName,arr);});refresh();return;}markAutonomous();const arr=getS3T(dayIdx,bookName);arr.push({id:newId(),text:v,done:false});setS3T(dayIdx,bookName,arr);inp.value='';refresh();};
     btn.addEventListener('click',doAdd);inp.addEventListener('keydown',e=>{if(e.key==='Enter')doAdd();});
     addRow.appendChild(acWrap);addRow.appendChild(btn);body.appendChild(addRow);
   }
@@ -1898,7 +1909,7 @@ function renderS4(){
           attachAutocomplete(subInp,v=>{subInp.value=v;});
           acWrap.appendChild(subInp);
           const subBtn=document.createElement('button');subBtn.textContent='+';
-          const doAddSub=()=>{const v=subInp.value.trim();if(!v)return;if(v==='/all'){handleSlashAll(subInp,n=>{markAutonomous();if(!task.subtasks)task.subtasks=[];task.subtasks.push({id:newId(),text:n,done:false});});refreshSubs();return;}markAutonomous();if(!task.subtasks)task.subtasks=[];task.subtasks.push({id:newId(),text:v,done:false});subInp.value='';refreshSubs();};
+          const doAddSub=()=>{const v=subInp.value.trim();if(!v)return;if(v.toLowerCase()==='/all'){handleSlashAll(subInp,n=>{markAutonomous();if(!task.subtasks)task.subtasks=[];task.subtasks.push({id:newId(),text:n,done:false});});refreshSubs();return;}markAutonomous();if(!task.subtasks)task.subtasks=[];task.subtasks.push({id:newId(),text:v,done:false});subInp.value='';refreshSubs();};
           subBtn.addEventListener('click',doAddSub);subInp.addEventListener('keydown',e=>{if(e.key==='Enter')doAddSub();});
           subAdd.appendChild(acWrap);subAdd.appendChild(subBtn);subList.appendChild(subAdd);
         }
@@ -1911,7 +1922,7 @@ function renderS4(){
       attachAutocomplete(inp,v=>{inp.value=v;});
       acWrap.appendChild(inp);
       const btn=document.createElement('button');btn.textContent='+';
-      const doAdd=()=>{const v=inp.value.trim();if(!v)return;if(v==='/all'){handleSlashAll(inp,n=>{markAutonomous();w.s4Tasks[dayIdx].push({id:newId(),text:n,done:false,subtasks:[]});});refreshS4();return;}markAutonomous();w.s4Tasks[dayIdx].push({id:newId(),text:v,done:false,subtasks:[]});inp.value='';refreshS4();};
+      const doAdd=()=>{const v=inp.value.trim();if(!v)return;if(v.toLowerCase()==='/all'){handleSlashAll(inp,n=>{markAutonomous();w.s4Tasks[dayIdx].push({id:newId(),text:n,done:false,subtasks:[]});});refreshS4();return;}markAutonomous();w.s4Tasks[dayIdx].push({id:newId(),text:v,done:false,subtasks:[]});inp.value='';refreshS4();};
       btn.addEventListener('click',doAdd);inp.addEventListener('keydown',e=>{if(e.key==='Enter')doAdd();});
       addRow.appendChild(acWrap);addRow.appendChild(btn);col.appendChild(addRow);
     }
