@@ -33,7 +33,7 @@
   -->
   <script>
     (function() {
-      var APP_VERSION = '3.0.0'; // ← AGGIORNA QUESTO AD OGNI DEPLOY
+      var APP_VERSION = '3.0.1'; // ← AGGIORNA QUESTO AD OGNI DEPLOY
 
       var storedVersion = localStorage.getItem('mb-cal-app-version');
       if (storedVersion !== APP_VERSION) {
@@ -682,7 +682,6 @@ function propagateForward(fromOffset){
 function propagateS1Forward(fromOffset){
   const next=fromOffset+1;
   if(!weekStore[next]) return;
-  if(weekStore[next].autonomous) return;
   const lockedRows=weekStore[fromOffset].s1LockedRows||[];
   const lockedBanners=deepClone((weekStore[fromOffset].s1Banners||[]).filter(b=>lockedRows.includes(b.row)));
   lockedBanners.forEach(b=>{
