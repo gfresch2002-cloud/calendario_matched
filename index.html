@@ -33,7 +33,7 @@
   -->
   <script>
     (function() {
-      var APP_VERSION = '2.3.3'; // ← AGGIORNA QUESTO AD OGNI DEPLOY
+      var APP_VERSION = '3.0.0'; // ← AGGIORNA QUESTO AD OGNI DEPLOY
 
       var storedVersion = localStorage.getItem('mb-cal-app-version');
       if (storedVersion !== APP_VERSION) {
@@ -179,7 +179,7 @@
     .section-title-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
     .section-title-row .section-title{margin-bottom:0;}
     /* S2 */
-    #s2-table{width:100%;border-collapse:separate;border-spacing:2px}
+    #s2-table{width:100%;border-collapse:separate;border-spacing:2px;table-layout:fixed;}
     #s2-table thead th{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-dim);padding:6px 8px;background:var(--surface);text-align:center;font-weight:400}
     #s2-table thead th:first-child{text-align:left;width:var(--label-w)}
     #s2-table thead th.today-col{color:var(--accent)}
@@ -200,6 +200,20 @@
     .s2-sub-row td.s2-cell input{width:100%;height:100%;background:transparent;border:none;color:var(--text);font-family:'DM Mono',monospace;font-size:11px;padding:0 8px;outline:none;cursor:text;user-select:text;text-align:center}
     .s2-sub-row td.s2-cell input:focus{background:var(--surface2);border-radius:var(--radius)}
     .s2-sub-row td.s2-cell input::placeholder{color:var(--text-muted);opacity:.4;}
+    .s2-cell-flex{display:flex;width:100%;height:100%;}
+    .s2-subfield{position:relative;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;min-width:0;}
+    .s2-subfield.f1{flex:1 1 20%;min-width:0;}
+    .s2-subfield.f2{flex:1 1 35%;min-width:0;border-left:1px solid var(--border);}
+    .s2-subfield.f3{flex:1 1 45%;min-width:0;border-left:1px solid var(--border);}
+    .s2-subfield .s2-bg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--text-muted);opacity:.45;pointer-events:none;user-select:none;}
+    .s2-subfield.f1 .s2-bg{font-size:11px;}
+    .s2-subfield.f1.has-value .s2-bg,.s2-subfield.f2.has-value .s2-bg,.s2-subfield.f3.has-value .s2-bg{opacity:0;}
+    .s2-subfield input{position:relative;z-index:1;width:100%;min-width:0;height:100%;background:transparent;border:none;color:var(--text);font-family:'DM Mono',monospace;font-size:10px;padding:0 1px;outline:none;text-align:center;cursor:text;}
+    .s2-subfield.f1 input{font-weight:600;}
+    .s2-subfield.f2 input{font-size:8px;}
+    .s2-subfield input:focus{background:var(--surface2);}
+    .s2-f3-arrow{position:absolute;left:-1px;top:50%;transform:translateY(-50%);font-size:8px;color:var(--text-muted);opacity:.55;pointer-events:none;z-index:2;}
+    .s2-computed{position:relative;z-index:1;height:100%;display:flex;align-items:center;line-height:normal;font-size:10px;font-family:'DM Mono',monospace;color:var(--text);pointer-events:none;}
     .s2-spacer td{height:6px}
     #s2-add-row td{padding-top:6px}
     #s2-add-book-btn{background:none;border:1px dashed var(--border);color:var(--text-muted);font-size:11px;padding:5px 14px;border-radius:var(--radius);cursor:pointer;font-family:'DM Mono',monospace;letter-spacing:.1em;transition:color .2s,border-color .2s}
@@ -597,12 +611,13 @@ function cloneStateFrom(src){
   const lockedBanners=deepClone((src.s1Banners||[]).filter(b=>lockedRows.includes(b.row)));
   lockedBanners.forEach(b=>{
     b.done=false;
+    b.fromLock=true; // marca come proveniente dal lucchetto
     if(b.accounts)b.accounts.forEach(a=>a.done=false);
     const addDays=(iso,n)=>{const d=fromISO(iso);d.setDate(d.getDate()+n);return toISO(d);};
     b.startDate=addDays(b.startDate,7);
     b.endDate=addDays(b.endDate,7);
   });
-  // riassegna le righe bloccate in ordine compatto (0,1,2...)
+  // riassegna le righe in ordine compatto
   lockedBanners.forEach((b,i)=>b.row=i);
   const nLocked=lockedBanners.length;
   const copy={
@@ -672,6 +687,7 @@ function propagateS1Forward(fromOffset){
   const lockedBanners=deepClone((weekStore[fromOffset].s1Banners||[]).filter(b=>lockedRows.includes(b.row)));
   lockedBanners.forEach(b=>{
     b.done=false;
+    b.fromLock=true;
     if(b.accounts)b.accounts.forEach(a=>a.done=false);
     const addDays=(iso,n)=>{const d=fromISO(iso);d.setDate(d.getDate()+n);return toISO(d);};
     b.startDate=addDays(b.startDate,7);
@@ -680,11 +696,12 @@ function propagateS1Forward(fromOffset){
   lockedBanners.forEach((b,i)=>b.row=i);
   const nLocked=lockedBanners.length;
   const ws=weekStore[next];
-  // ricostruisce sempre da _prelock + banner bloccati aggiornati
-  const existingBanners=deepClone(ws._prelock.s1Banners).map(b=>({...b,row:b.row+nLocked}));
-  const existingRows=(ws._prelock.s1Rows||1)+nLocked;
-  ws.s1Banners=[...lockedBanners,...existingBanners];
-  ws.s1Rows=Math.max(1,existingRows);
+  // rimuove i banner fromLock precedenti, mantiene quelli manuali
+  const manualBanners=(ws.s1Banners||[]).filter(b=>!b.fromLock);
+  // scala le righe manuali dopo i banner bloccati
+  manualBanners.forEach((b,i)=>b.row=nLocked+i);
+  ws.s1Banners=[...lockedBanners,...manualBanners];
+  ws.s1Rows=Math.max(1,nLocked+manualBanners.length);
   ws.s1LockedRows=lockedBanners.map((_,i)=>i);
   propagateS1Forward(next);
 }
@@ -769,15 +786,27 @@ document.getElementById('settings-import').addEventListener('change',e=>{
       if(state.weekOffset!==undefined) weekOffset=state.weekOffset;
       if(state.isDark!==undefined) isDark=state.isDark;
       if(state.weekStore) Object.keys(state.weekStore).forEach(k=>{weekStore[parseInt(k)]=state.weekStore[k];});
-      if(state.accountNames) accountNames=state.accountNames;
-    if(state.bookmakerNames) bookmakerNames=state.bookmakerNames;
+      const mergeNames=(current,incoming)=>{
+        if(!incoming) return current;
+        const merged=current.slice();
+        const norm=s=>String(s).trim().toLowerCase();
+        const existing=new Set(merged.map(norm));
+        incoming.forEach(name=>{
+          const key=norm(name);
+          if(!existing.has(key)){existing.add(key);merged.push(name);}
+        });
+        return merged;
+      };
+      accountNames=mergeNames(accountNames,state.accountNames);
+      bookmakerNames=mergeNames(bookmakerNames,state.bookmakerNames);
       if(state.customBookColors) customBookColors=state.customBookColors;
       if(state.s2Visibility) s2Visibility=state.s2Visibility;
       if(state.taskIdCounter) taskIdCounter=state.taskIdCounter;
-      localStorage.setItem(STORAGE_KEY,JSON.stringify(state));
+      saveState();
       document.body.classList.toggle('light',!isDark);
       document.getElementById('theme-btn').textContent=isDark?'🌙':'☀️';
       renderAll();
+      renderSettings();
       document.getElementById('settings-backup-status').textContent='✓ Importato con successo!';
     }catch(err){
       document.getElementById('settings-backup-status').textContent='✗ Errore: file non valido';
@@ -837,8 +866,6 @@ document.getElementById('settings-acc-input').addEventListener('keydown',e=>{if(
 // ══════════════════════════════════════════════════════
 //  SLASH COMMAND /all — inserisce tutti gli account in sequenza
 // ══════════════════════════════════════════════════════
-// doAdd: funzione che aggiunge un singolo elemento (prende il testo)
-// inp: il campo input da cui è partito il comando
 function handleSlashAll(inp,doAdd){
   if(!accountNames.length)return false;
   inp.value='';
@@ -1000,33 +1027,10 @@ function renderS1(){
       const ws=getWeekState(weekOffset);
       if(!ws.s1LockedRows) ws.s1LockedRows=[];
       const idx=ws.s1LockedRows.indexOf(row);
-      const wasLocked=idx>=0;
-      if(wasLocked) ws.s1LockedRows.splice(idx,1);
+      if(idx>=0) ws.s1LockedRows.splice(idx,1);
       else ws.s1LockedRows.push(row);
       // aggiorna anche locked sui banner della riga per coerenza
       getBanners().filter(b=>b.row===row).forEach(b=>b.locked=ws.s1LockedRows.includes(row));
-      // se si sta bloccando: salva _prelock nella settimana successiva PRIMA della propagazione
-      if(!wasLocked){
-        const next=weekOffset+1;
-        if(weekStore[next]&&!weekStore[next]._prelock){
-          weekStore[next]._prelock={
-            s1Banners:deepClone(weekStore[next].s1Banners||[]),
-            s1Rows:weekStore[next].s1Rows||1,
-            s1LockedRows:deepClone(weekStore[next].s1LockedRows||[])
-          };
-        }
-      }
-      // se si sta sbloccando: ripristina _prelock nella settimana successiva se esiste
-      if(wasLocked){
-        const next=weekOffset+1;
-        if(weekStore[next]&&weekStore[next]._prelock){
-          const pre=weekStore[next]._prelock;
-          weekStore[next].s1Banners=deepClone(pre.s1Banners);
-          weekStore[next].s1Rows=pre.s1Rows;
-          weekStore[next].s1LockedRows=deepClone(pre.s1LockedRows);
-          delete weekStore[next]._prelock;
-        }
-      }
       propagateS1Forward(weekOffset);
       scheduleSave();renderS1();
     });
@@ -1196,8 +1200,7 @@ function renderBanners(days){
     const todayISO=toISO(today);
     const todayCol=coveredCols.find(c=>c.iso===todayISO);
 
-    // Il secondo giorno del banner (coveredCols[1]) è il minimo da cui parte il titolo —
-    // il primo giorno è riservato ai bottoni (cb, ▼, ✏️, ×) per evitare sovrapposizioni.
+    // Il secondo giorno del banner è il minimo da cui parte il titolo
     const secondCol=coveredCols.length>1?coveredCols[1]:null;
     let secondDayLeft=null;
     if(secondCol){
@@ -1216,7 +1219,6 @@ function renderBanners(days){
         titleLeftOffset=tcRect.left-gridRect.left-left+6;
       }
     }
-    // Il titolo non può mai partire prima del secondo giorno
     if(secondDayLeft!==null){
       if(titleLeftOffset===null) titleLeftOffset=secondDayLeft;
       else titleLeftOffset=Math.max(titleLeftOffset,secondDayLeft);
@@ -1224,8 +1226,6 @@ function renderBanners(days){
 
     const titleSpan=document.createElement('span');titleSpan.className='b-title';titleSpan.textContent=banner.title;
     titleSpan.style.position='relative';titleSpan.style.zIndex='2';
-    // pinna il titolo al secondo giorno (o oggi se successivo) solo se c'è spazio sufficiente
-    // Se il banner dura un solo giorno (secondDayLeft===null), titolo in flow normale
     const pinnedLeft=titleLeftOffset!==null?titleLeftOffset:null;
     const availableSpace=pinnedLeft!==null?width-pinnedLeft-52:0;
     if(secondDayLeft!==null && pinnedLeft!==null && availableSpace>=40){
@@ -1236,7 +1236,7 @@ function renderBanners(days){
       titleSpan.style.textOverflow='ellipsis';
       titleSpan.style.whiteSpace='nowrap';
     } else {
-      // banner di un solo giorno o spazio insufficiente: titolo in flow normale
+      // spazio insufficiente o banner non copre oggi: titolo in flow normale
       titleSpan.style.flex='1';
       titleSpan.style.overflow='hidden';
       titleSpan.style.textOverflow='ellipsis';
@@ -1565,32 +1565,105 @@ function renderS2(){
       trSub.appendChild(tdLbl);
       days.forEach((d,di)=>{
         const td=document.createElement('td');td.className='s2-cell'+(isToday(d)?' today-col':'');
-        const inp=document.createElement('input');inp.type='text';inp.value=w.s2Data[s2Key(bi,si,di)]||'';inp.placeholder='—';
-        inp.dataset.bi=bi;inp.dataset.si=si;inp.dataset.di=di;
-        inp.addEventListener('focus',()=>inp.select());
-        inp.addEventListener('input',()=>{markAutonomous();w.s2Data[s2Key(bi,si,di)]=inp.value;});
-        inp.addEventListener('blur',()=>{ if(typeof forceSaveNow==='function') forceSaveNow(); });
-        inp.addEventListener('mousedown',e=>e.stopPropagation());
-        // keyboard nav
-        inp.addEventListener('keydown',e=>{
-          if(!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key))return;
-          e.preventDefault();
-          const curBi=+inp.dataset.bi, curSi=+inp.dataset.si, curDi=+inp.dataset.di;
-          let nBi=curBi,nSi=curSi,nDi=curDi;
-          if(e.key==='ArrowRight'){nDi=Math.min(6,curDi+1);}
-          else if(e.key==='ArrowLeft'){nDi=Math.max(0,curDi-1);}
-          else if(e.key==='ArrowDown'){
-            nSi=curSi+1;
-            if(nSi>=SUB_TYPES.length){nSi=0;nBi=Math.min(w.s2Books.length-1,curBi+1);}
-          } else if(e.key==='ArrowUp'){
-            nSi=curSi-1;
-            if(nSi<0){nSi=SUB_TYPES.length-1;nBi=Math.max(0,curBi-1);}
-          }
-          const target=s2InputMap.find(x=>x.bi===nBi&&x.si===nSi&&x.di===nDi);
-          if(target)target.inp.focus();
+        const wrap=document.createElement('div');wrap.className='s2-cell-flex';
+
+        // --- Campo 1: numero intero, sfondo omino (sovrapposto) ---
+        const sub1=document.createElement('div');sub1.className='s2-subfield f1';
+        const bg1=document.createElement('span');bg1.className='s2-bg';bg1.textContent='👤';sub1.appendChild(bg1);
+        const inp1=document.createElement('input');inp1.type='text';inp1.inputMode='numeric';
+        inp1.value=w.s2Data[s2Key(bi,si,di)+':1']||'';
+        inp1.dataset.bi=bi;inp1.dataset.si=si;inp1.dataset.di=di;inp1.dataset.field='1';
+        inp1.addEventListener('focus',()=>inp1.select());
+        inp1.addEventListener('mousedown',e=>e.stopPropagation());
+        const syncF1Visual=()=>sub1.classList.toggle('has-value',inp1.value!=='');
+        sub1.appendChild(inp1);
+
+        // --- Campo 2: numero con 2 decimali, sfondo € (sparisce se pieno) ---
+        const sub2=document.createElement('div');sub2.className='s2-subfield f2';
+        const bg2=document.createElement('span');bg2.className='s2-bg';bg2.textContent='€';sub2.appendChild(bg2);
+        const inp2=document.createElement('input');inp2.type='text';inp2.inputMode='decimal';
+        inp2.value=w.s2Data[s2Key(bi,si,di)+':2']||'';
+        inp2.dataset.bi=bi;inp2.dataset.si=si;inp2.dataset.di=di;inp2.dataset.field='2';
+        inp2.addEventListener('focus',()=>inp2.select());
+        inp2.addEventListener('mousedown',e=>e.stopPropagation());
+        sub2.appendChild(inp2);
+
+        // --- Campo 3: calcolato (campo1 × campo2), sfondo "Totale" (sparisce se pieno) ---
+        const sub3=document.createElement('div');sub3.className='s2-subfield f3';
+        const arrow=document.createElement('span');arrow.className='s2-f3-arrow';arrow.textContent='▸';sub3.appendChild(arrow);
+        const bg3=document.createElement('span');bg3.className='s2-bg';bg3.textContent='Totale';sub3.appendChild(bg3);
+        const f3Span=document.createElement('span');f3Span.className='s2-computed';sub3.appendChild(f3Span);
+
+        function recompute(){
+          const v1=w.s2Data[s2Key(bi,si,di)+':1'];
+          const v2=w.s2Data[s2Key(bi,si,di)+':2'];
+          if(!v1||!v2){f3Span.textContent='';sub3.classList.remove('has-value');return;}
+          const n1=parseInt(v1,10), n2=parseFloat(v2.replace(',','.'));
+          if(isNaN(n1)||isNaN(n2)){f3Span.textContent='';sub3.classList.remove('has-value');return;}
+          f3Span.textContent='€'+(n1*n2).toFixed(2).replace('.',',');
+          sub3.classList.add('has-value');
+        }
+
+        inp1.addEventListener('input',()=>{
+          inp1.value=inp1.value.replace(/[^0-9]/g,'');
+          markAutonomous();
+          w.s2Data[s2Key(bi,si,di)+':1']=inp1.value;
+          syncF1Visual();
+          recompute();
         });
-        s2InputMap.push({inp,bi,si,di});
-        td.appendChild(inp);trSub.appendChild(td);
+        inp1.addEventListener('blur',()=>{ if(typeof forceSaveNow==='function') forceSaveNow(); });
+
+        const syncF2Visual=()=>sub2.classList.toggle('has-value',inp2.value!=='');
+        inp2.addEventListener('input',()=>{
+          let v=inp2.value.replace(/[^0-9,]/g,'');
+          const parts=v.split(',');
+          if(parts.length>2) v=parts[0]+','+parts.slice(1).join('');
+          inp2.value=v;
+          markAutonomous();
+          w.s2Data[s2Key(bi,si,di)+':2']=inp2.value;
+          syncF2Visual();
+          recompute();
+        });
+        inp2.addEventListener('blur',()=>{
+          if(inp2.value!==''){
+            const n=parseFloat(inp2.value.replace(',','.'));
+            if(!isNaN(n)){inp2.value=n.toFixed(2).replace('.',',');w.s2Data[s2Key(bi,si,di)+':2']=inp2.value;}
+          }
+          syncF2Visual();recompute();
+          if(typeof forceSaveNow==='function') forceSaveNow();
+        });
+
+        syncF1Visual();syncF2Visual();recompute();
+
+        // keyboard nav — estesa a campo1/campo2 (campo3 è di sola lettura, non riceve focus)
+        [inp1,inp2].forEach(inp=>{
+          inp.addEventListener('keydown',e=>{
+            if(!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key))return;
+            e.preventDefault();
+            const curBi=+inp.dataset.bi, curSi=+inp.dataset.si, curDi=+inp.dataset.di, curField=inp.dataset.field;
+            let nBi=curBi,nSi=curSi,nDi=curDi,nField=curField;
+            if(e.key==='ArrowRight'){
+              if(curField==='1'){nField='2';}
+              else{nField='1';nDi=Math.min(6,curDi+1);}
+            } else if(e.key==='ArrowLeft'){
+              if(curField==='2'){nField='1';}
+              else{nField='2';nDi=Math.max(0,curDi-1);}
+            } else if(e.key==='ArrowDown'){
+              nSi=curSi+1;
+              if(nSi>=SUB_TYPES.length){nSi=0;nBi=Math.min(w.s2Books.length-1,curBi+1);}
+            } else if(e.key==='ArrowUp'){
+              nSi=curSi-1;
+              if(nSi<0){nSi=SUB_TYPES.length-1;nBi=Math.max(0,curBi-1);}
+            }
+            const target=s2InputMap.find(x=>x.bi===nBi&&x.si===nSi&&x.di===nDi&&x.field===nField);
+            if(target)target.inp.focus();
+          });
+        });
+        s2InputMap.push({inp:inp1,bi,si,di,field:'1'});
+        s2InputMap.push({inp:inp2,bi,si,di,field:'2'});
+
+        wrap.appendChild(sub1);wrap.appendChild(sub2);wrap.appendChild(sub3);
+        td.appendChild(wrap);trSub.appendChild(td);
       });
       tbody.appendChild(trSub);
     });
@@ -1937,12 +2010,8 @@ function loadState(){
     } else {
       anchorMonday=getThisMonday();
     }
-    // weekOffset salvato: lo usiamo solo se presente, altrimenti calcoliamo "oggi"
-    if(state.weekOffset !== undefined){
-      weekOffset=state.weekOffset;
-    } else {
-      weekOffset=getTodayOffset();
-    }
+    // Ad ogni apertura si mostra sempre la settimana corrente (non quella salvata)
+    weekOffset=getTodayOffset();
     if(state.isDark !== undefined) isDark = state.isDark;
     if(state.weekStore){
       Object.keys(state.weekStore).forEach(k => {
